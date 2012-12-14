@@ -1,3 +1,6 @@
+# Installation
+Git-clone this project into your `~/.config/sublime-text-2/Packages/` folder and restart ST2.
+
 # Usage
 Press `Ctrl+Alt+Y` and start typing Yaml key names.  
 Example:
