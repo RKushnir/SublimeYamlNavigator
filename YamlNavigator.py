@@ -1,10 +1,9 @@
 import sublime, sublime_plugin, yaml, re
-from yaml.composer import Composer
-from yaml.constructor import Constructor
 
 class YamlNavigatorCommand(sublime_plugin.WindowCommand):
   def run(self):
     view = self.window.active_view()
+
     if view:
       text = view.substr(sublime.Region(0, view.size()))
       self.line_detector = LineDetector(text)
@@ -14,68 +13,58 @@ class YamlNavigatorCommand(sublime_plugin.WindowCommand):
   def on_change(self, query):
     view = self.window.active_view()
     if query and view:
-      line = self.line_detector.line_num(query)
+      line = self.line_detector.line_num(query) + 1
       view.run_command("goto_line", {"line": line})
 
 class Node(object):
-  def __init__(self, name, line):
+  def __init__(self, name, line, parent):
     self.name = name
     self.line = line
-    self.parent = None
-
-  def __str__(self):
-    return "Node(name=" + self.name + ", line=" + str(self.line) + ", parent=" + str(self.parent)
+    self.parent = parent
 
 class LineDetector(object):
   def __init__(self, text):
     self.nodes = self.build_graph(text)
 
   def build_graph(self, text):
-    loader = yaml.Loader(text)
-    nodes = {}
+    events = yaml.parse(text)
+    node_stack = [None]
+    nodes = []
 
-    def compose_node(parent, index):
-      line = loader.line
-      node = Composer.compose_node(loader, parent, index)
-      if type(node) is yaml.ScalarNode and index is None:
-        nodes[node] = Node(node.value, line + 1)
-      return node
+    mapping_changed = False
+    for event in events:
+      if type(event) is yaml.MappingStartEvent:
+        mapping_changed = True
+      else:
+        if type(event) is yaml.MappingEndEvent:
+          mapping_changed = True
+          node_stack.pop()
+        else:
+          if type(event) is yaml.ScalarEvent:
+            if mapping_changed:
+              node = Node(event.value, event.start_mark.line, node_stack[-1])
+              nodes.append(node)
+              node_stack.append(node)
 
-    def construct_mapping(node, deep=False):
-      mapping = Constructor.construct_mapping(loader, node, deep=deep)
-      for key_node, value_node in node.value:
-        if type(value_node) is yaml.MappingNode:
-          for child_key_node, child_value_node in value_node.value:
-            nodes[child_key_node].parent = key_node
-      return mapping
+          mapping_changed = False
 
-    loader.compose_node = compose_node
-    loader.construct_mapping = construct_mapping
-    loader.get_single_data()
     return nodes
 
   def line_num(self, query):
     def node_matches_selectors(node, selectors):
       if not selectors: return True
       if not node: return False
-      node_info = self.nodes[node]
 
-      if re.search(selectors[0], node_info.name):
-        return node_matches_selectors(node_info.parent, selectors[1:])
-      else:
-        return node_matches_selectors(node_info.parent, selectors)
-
-      return False
+      new_selectors = selectors[:-1] if re.search(selectors[-1], node.name) else selectors
+      return node_matches_selectors(node.parent, new_selectors)
 
     query_parts = query.split()
-    query_parts.reverse()
-    first_selector = query_parts.pop(0)
+    first_selector = query_parts.pop()
 
     line = 0
-    for k in self.nodes:
-      node_info = self.nodes[k]
-      if re.search(first_selector, node_info.name) and node_matches_selectors(node_info.parent, query_parts):
-        line = node_info.line
+    for node in self.nodes:
+      if re.search(first_selector, node.name) and node_matches_selectors(node.parent, query_parts):
+        line = node.line
         break
 
     return line
