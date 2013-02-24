@@ -46,7 +46,7 @@ class LineDetector(object):
               nodes.append(node)
               node_stack.append(node)
 
-          mapping_changed = False
+            mapping_changed = not mapping_changed
 
     return nodes
 
